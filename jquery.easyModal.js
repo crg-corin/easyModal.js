@@ -8,7 +8,7 @@
 /*jslint browser: true*/
 /*global jQuery*/
 
-(function ($) {
+define(['jquery'], function ($) {
     "use strict";
     var methods = {
         init: function (options) {
@@ -22,8 +22,9 @@
                 overlayParent: 'body',
                 closeOnEscape: true,
                 closeButtonClass: '.close',
-                transitionIn: '',
-                transitionOut: '',
+                transitionIn: false,
+                transitionOut: false,
+                wrapperClass: 'easy-modal-wrapper',
                 onOpen: false,
                 onClose: false,
                 zIndex: function () {
@@ -38,15 +39,38 @@
                     })))));
                 },
                 updateZIndexOnOpen: true
+
             };
 
             options = $.extend(defaults, options);
 
+            var
+                closeCallback = function() {},
+                openCallback = closeCallback
+            ;
+
             return this.each(function () {
 
                 var o = options,
-                    $overlay = $('<div class="lean-overlay"></div>'),
-                    $modal = $(this);
+                    $overlay = $('.lean-overlay'),
+                    $modal = $(this),
+                    autoTop = parseInt(o.top, 10) > -1
+                ;
+                if ($overlay.length === 0)
+                    $overlay = $('<div class="lean-overlay"></div>');
+
+                if (o.onOpen && typeof o.onOpen === 'function') {
+                    openCallback = function(){
+                        // callback receives as argument the modal window
+                        o.onOpen.call($modal[0], $modal[0]);
+                    };
+                }
+                if (o.onClose && typeof o.onClose === 'function') {
+                    closeCallback = function(){
+                        // callback receives as argument the modal window
+                        o.onClose.call($modal[0], $modal[0]);
+                    };
+                }
 
                 $overlay.css({
                     'display': 'none',
@@ -59,87 +83,105 @@
                     'height': '100%',
                     'width': '100%',
                     'background': o.overlayColor,
-                    'opacity': o.overlayOpacity,
+                    'opacity': 0,
                     'overflow': 'auto'
                 }).appendTo(o.overlayParent);
 
-                $modal.css({
-                    'display': 'none',
-                    'position' : 'fixed',
-                    // When updateZIndexOnOpen is set to true, we avoid computing the z-index on initialization,
-                    // because the value would be replaced when opening the modal.
-                    'z-index': (o.updateZIndexOnOpen ? 0 : o.zIndex() + 1),
-                    'left' : 50 + '%',
-                    'top' : parseInt(o.top, 10) > -1 ? o.top + 'px' : 50 + '%'
-                });
+                $modal
+                    .css({
+                        'display': 'block',
+                        'box-sizing': 'border-box',
+                        'margin-left': '-50%'
+                    })
+                    .wrap(function() {
+                        return $('<div>')
+                            .addClass(o.wrapperClass)
+                            .css({
+                                'display': 'none',
+                                'position' : 'fixed',
+                                // When updateZIndexOnOpen is set to true, we avoid computing the z-index on initialization,
+                                // because the value would be replaced when opening the modal.
+                                'z-index': (o.updateZIndexOnOpen ? 0 : o.zIndex() + 1),
+                                'left' : 50 + '%',
+                                'top' : autoTop ? o.top : '50%'
+                            });
+                    });
+
+                var closeOnOverlayClick = function () {
+                    if (o.overlayClose) {
+                        $modal.trigger('closeModal');
+                    }
+                };
+
+                var closeOnEscapeKeyPressed = function (e) {
+                    if (o.closeOnEscape && e.keyCode === 27) {
+                        $modal.trigger('closeModal');
+                    }
+                };
+
+                var closeOnButtonClicked = function (e) {
+                    $modal.trigger('closeModal');
+                    e.preventDefault();
+                };
 
                 $modal.bind('openModal', function () {
+                    $overlay.on('click', closeOnOverlayClick);
+                    $(document).on('keydown', closeOnEscapeKeyPressed);
+                    $modal.on('click', o.closeButtonClass, closeOnButtonClicked);
+
                     var overlayZ = o.updateZIndexOnOpen ? o.zIndex() : parseInt($overlay.css('z-index'), 10),
                         modalZ = overlayZ + 1;
 
-                    if(o.transitionIn !== '' && o.transitionOut !== ''){
-                        $modal.removeClass(o.transitionOut).addClass(o.transitionIn);
-                    }
-                    $modal.css({
-                        'display' : 'block',
-                        'margin-left' : -($modal.outerWidth() / 2) + 'px',
-                        'margin-top' : (parseInt(o.top, 10) > -1 ? 0 : -($modal.outerHeight() / 2)) + 'px',
-                        'z-index': modalZ
-                    });
+                    $modal
+                        .css('margin-top', autoTop ? 0 : -($modal.outerHeight() / 2) + 'px')
+                        .parent().css('z-index', modalZ);
 
-                    $overlay.css({'z-index': overlayZ, 'display': 'block'});
+                    var shown = $overlay
+                        .css({
+                            'display': 'block',
+                            'z-index': overlayZ
+                        })
+                        .fadeTo('normal', o.overlayOpacity).promise();
 
-                    if (o.onOpen && typeof o.onOpen === 'function') {
-                        // onOpen callback receives as argument the modal window
-                        o.onOpen($modal[0]);
+                    var p = $modal.parent();
+                    if(o.transitionIn && o.transitionOut) {
+                        p.css('display', 'block');
+                        p.animate.apply(p, o.transitionIn).promise()
+                            .done(function() {
+                                shown.done(openCallback);
+                            });
+                    } else {
+                        shown.done(function() {
+                            p.fadeIn('fast', openCallback);
+                        });
                     }
                 });
 
                 $modal.bind('closeModal', function () {
-                    if(o.transitionIn !== '' && o.transitionOut !== ''){
-                        $modal.removeClass(o.transitionIn).addClass(o.transitionOut);
-                        $modal.one('webkitAnimationEnd mozAnimationEnd MSAnimationEnd oanimationend animationend', function(){
-                            $modal.css('display', 'none');
-                            $overlay.css('display', 'none');
-                        });
-                    }
-                    else {
-                        $modal.css('display', 'none');
-                        $overlay.css('display', 'none');
-                    }
-                    if (o.onClose && typeof o.onClose === 'function') {
-                        // onClose callback receives as argument the modal window
-                        o.onClose($modal[0]);
-                    }
-                });
+                    $overlay.off('click', closeOnOverlayClick);
+                    $(document).off('keydown', closeOnEscapeKeyPressed);
+                    $modal.off('click', o.closeButtonClass, closeOnButtonClicked);
 
-                // Close on overlay click
-                $overlay.click(function () {
-                    if (o.overlayClose) {
-                        $modal.trigger('closeModal');
+                    var p = $modal.parent();
+                    var complete = function() {
+                        $overlay.fadeOut('normal', closeCallback);
+                    };
+                    if(o.transitionIn && o.transitionOut) {
+                        p.animate.apply(p, o.transitionOut).promise()
+                            .done(function() {
+                                p.css('display', 'none');
+                                complete();
+                            });
+                    } else {
+                        p.fadeOut('fast', complete);
                     }
-                });
-
-                $(document).keydown(function (e) {
-                    // ESCAPE key pressed
-                    if (o.closeOnEscape && e.keyCode === 27) {
-                        $modal.trigger('closeModal');
-                    }
-                });
-
-                // Close when button pressed
-                $modal.on('click', o.closeButtonClass, function (e) {
-                    $modal.trigger('closeModal');
-                    e.preventDefault();
                 });
 
                 // Automatically open modal if option set
                 if (o.autoOpen) {
                     $modal.trigger('openModal');
                 }
-
             });
-
         }
     };
 
@@ -158,4 +200,4 @@
 
     };
 
-}(jQuery));
+});
